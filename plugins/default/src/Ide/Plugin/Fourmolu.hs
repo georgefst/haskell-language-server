@@ -12,6 +12,7 @@ module Ide.Plugin.Fourmolu
 where
 
 import           Control.Exception
+import           Control.Lens ((^.))
 import qualified Data.Text                         as T
 import           Development.IDE                   as D
 import qualified DynFlags                          as D
@@ -25,6 +26,7 @@ import           Ide.Types
 import           Language.Haskell.LSP.Core         (LspFuncs (withIndefiniteProgress),
                                                     ProgressCancellable (Cancellable))
 import           Language.Haskell.LSP.Types
+import           Language.Haskell.LSP.Types.Lens
 import "fourmolu" Ormolu
 import           System.FilePath                   (takeFileName)
 import           Text.Regex.TDFA.Text              ()
@@ -39,7 +41,7 @@ descriptor plId = (defaultPluginDescriptor plId)
 -- ---------------------------------------------------------------------
 
 provider :: FormattingProvider IO
-provider lf ideState typ contents fp _ = withIndefiniteProgress lf title Cancellable $ do
+provider lf ideState typ contents fp opts = withIndefiniteProgress lf title Cancellable $ do
   let
     fromDyn :: DynFlags -> IO [DynOption]
     fromDyn df =
@@ -61,13 +63,17 @@ provider lf ideState typ contents fp _ = withIndefiniteProgress lf title Cancell
   let
     fullRegion = RegionIndices Nothing Nothing
     rangeRegion s e = RegionIndices (Just $ s + 1) (Just $ e + 1)
+    lspOpts = mempty{poIndentation = pure $ opts ^. tabSize}
     mkConf o region = do
-      printerOpts <- loadConfigFile True (Just fp') defaultPrinterOpts
+      fileOpts <- loadConfigFile True $ Just fp'
       return $ defaultConfig
         { cfgDynOptions = o
         , cfgRegion = region
         , cfgDebug = True
-        , cfgPrinterOpts = printerOpts
+        , cfgPrinterOpts =
+            fillMissingPrinterOpts
+                (lspOpts <> fileOpts)
+                defaultPrinterOpts
         }
     fmt :: T.Text -> Config RegionIndices -> IO (Either OrmoluException T.Text)
     fmt cont conf =
